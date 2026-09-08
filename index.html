@@ -88,7 +88,8 @@ let lastAutoChimeTime = 0;
 let nextAutoChimeDelay = 0;
 let lastTapTime = 0;
 const AUTO_STOP_MS = 20 * 60 * 1000; // 20分で自動停止
-let activeBells = []; // 再生中の音(Stopで一斉停止するため)
+const STOP_FADE_SEC = 4; // Stop時の余韻
+let activeBells = []; // 再生中の音(Stopでフェードアウトするため)
 
 function getBackgroundRGB() {
     const n = BG_COLORS.length;
@@ -177,17 +178,29 @@ document.getElementById('stop-btn').addEventListener('pointerdown', (e) => {
 
 function stopAllSounds() {
     nightStarted = false; // 以後は新しい自動チャイムを鳴らさない
-    for (const bell of activeBells) {
+    const fading = activeBells.splice(0, activeBells.length);
+    const ctx = getAudioContext();
+    const now = ctx.currentTime;
+    for (const bell of fading) {
         clearTimeout(bell.stopTimer);
         try {
-            bell.osc.amp(0);
-            bell.osc.stop();
-            if (typeof bell.osc.dispose === 'function') {
-                bell.osc.dispose();
-            }
+            const g = bell.fadeGain.gain;
+            const current = Math.max(g.value, 0.0001);
+            g.cancelScheduledValues(now);
+            g.setValueAtTime(current, now);
+            g.exponentialRampToValueAtTime(0.0001, now + STOP_FADE_SEC);
+            g.linearRampToValueAtTime(0, now + STOP_FADE_SEC + 0.02);
         } catch (e) {}
+        setTimeout(() => {
+            try {
+                bell.osc.stop();
+                if (typeof bell.osc.dispose === 'function') {
+                    bell.osc.dispose();
+                }
+                bell.fadeGain.disconnect();
+            } catch (e) {}
+        }, STOP_FADE_SEC * 1000 + 80);
     }
-    activeBells = [];
 }
 
 function handleTap() {
@@ -243,14 +256,22 @@ function playNightBell(x, volumeScale) {
     let freq = map(x, 0, width, low, high) + random(-15, 15);
     osc.freq(freq);
     osc.amp(env);
+
+    const fadeGain = getAudioContext().createGain();
+    fadeGain.gain.value = 1;
+    osc.disconnect();
+    osc.connect(fadeGain);
+    fadeGain.connect(getAudioContext().destination);
+
     osc.start();
     env.play();
 
     const stopTimer = setTimeout(() => {
         osc.stop();
+        fadeGain.disconnect();
         activeBells = activeBells.filter(b => b.osc !== osc);
     }, 16000);
-    activeBells.push({ osc, stopTimer });
+    activeBells.push({ osc, fadeGain, stopTimer });
 }
 
 // --- 星屑(元のコードよりゆっくり、控えめに) ---
