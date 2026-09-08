@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sleeping Wind Bell</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/addons/p5.sound.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #050810;
+        }
+        canvas {
+            position: fixed;
+            inset: 0;
+            z-index: 10;
+            display: block;
+        }
+        .instruction {
+            position: fixed;
+            bottom: 8vh;
+            width: 100%;
+            text-align: center;
+            color: rgba(200, 210, 230, 0.35);
+            font-family: -apple-system, "Hiragino Sans", sans-serif;
+            font-size: 14px;
+            letter-spacing: 0.05em;
+            z-index: 20;
+            pointer-events: none;
+            transition: opacity 3s ease;
+        }
+        .instruction.faded { opacity: 0; }
+    </style>
+</head>
+<body>
+<p class="instruction" id="instruction">Touch once, then let it play</p>
+
+<script>
+let particles = [];
+
+// 紫 → 青 → 水色 → 深緑 → 緑 の順でローテーション
+const BG_COLORS = [
+    [48, 12, 62],   // 濃い紫
+    [10, 16, 58],   // 濃い青
+    [96, 176, 208], // 水色
+    [8, 46, 34],    // 深い緑
+    [20, 90, 50],   // 緑
+];
+const BG_SEGMENT_MS = 5000; // 5秒ごとに切り替え
+
+// --- 夜モード状態管理 ---
+let nightStarted = false;
+let startTime = 0;
+const DESCENT_DURATION_MS = 5 * 60 * 1000; // 5分かけて音域が下がりきる
+const FREQ_HIGH_START = 480;   // 開始時の上限
+const FREQ_LOW_START  = 220;   // 開始時の下限
+const FREQ_HIGH_END   = 260;   // 5分後の上限
+const FREQ_LOW_END    = 90;    // 5分後の下限
+
+let lastAutoChimeTime = 0;
+let nextAutoChimeDelay = 0;
+let lastTapTime = 0;
+const AUTO_STOP_MS = 20 * 60 * 1000; // 20分で自動停止
+
+function getBackgroundRGB() {
+    const n = BG_COLORS.length;
+    const t = millis() % (n * BG_SEGMENT_MS);
+    const segment = Math.floor(t / BG_SEGMENT_MS);
+    const progress = (t % BG_SEGMENT_MS) / BG_SEGMENT_MS;
+    const from = BG_COLORS[segment];
+    const to = BG_COLORS[(segment + 1) % n];
+    return [
+        lerp(from[0], to[0], progress),
+        lerp(from[1], to[1], progress),
+        lerp(from[2], to[2], progress),
+    ];
+}
+
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    let [r, g, b] = getBackgroundRGB();
+    background(r, g, b);
+    userStartAudio();
+}
+
+function draw() {
+    let [r, g, b] = getBackgroundRGB();
+    background(r, g, b, 25); // 残像を長めに残し、より静かな明滅にする
+
+    for (let i = particles.length - 1; i >= 0; i--) {
+        particles[i].update();
+        particles[i].display();
+        if (particles[i].isDead()) {
+            particles.splice(i, 1);
+        }
+    }
+
+    // 手を離しても鳴り続ける「置き去り型」の自動チャイム(20分で自動的に鳴りやむ)
+    if (nightStarted &&
+        millis() - startTime < AUTO_STOP_MS &&
+        millis() - lastAutoChimeTime > nextAutoChimeDelay) {
+        let x = random(width * 0.2, width * 0.8);
+        let y = random(height * 0.3, height * 0.7);
+        playNightBell(x, 0.55); // 自動再生時はさらに小さな音量
+        for (let i = 0; i < 2; i++) particles.push(new StarDust(x, y));
+        lastAutoChimeTime = millis();
+        nextAutoChimeDelay = random(14000, 30000); // 14〜30秒間隔でランダムに
+    }
+    if (nightStarted && millis() - startTime >= AUTO_STOP_MS) {
+        nightStarted = false; // 20分経過後は新しい音を鳴らさない(既存の音は余韻の中で自然に消える)
+    }
+}
+
+function mouseMoved() {
+    handleInteraction(mouseX, mouseY);
+}
+
+function touchMoved() {
+    if (touches.length > 0) {
+        handleInteraction(touches[0].x, touches[0].y);
+    }
+    return false;
+}
+
+function mousePressed() { handleTap(); }
+function touchStarted() { handleTap(); return false; }
+
+function handleTap() {
+    let now = millis();
+    if (nightStarted && now - lastTapTime < 400) {
+        nightStarted = false; // ダブルタップで手動停止(以後は新しい音を鳴らさない)
+    } else {
+        beginNightMode();
+    }
+    lastTapTime = now;
+}
+
+function beginNightMode() {
+    if (!nightStarted) {
+        nightStarted = true;
+        startTime = millis();
+        lastAutoChimeTime = millis();
+        nextAutoChimeDelay = random(8000, 15000);
+    }
+}
+
+function handleInteraction(x, y) {
+    if (random() > 0.75) {
+        playNightBell(x, 1.0);
+        for (let i = 0; i < 2; i++) {
+            particles.push(new StarDust(x, y));
+        }
+    }
+}
+
+// 経過時間に応じて、今この瞬間の周波数レンジを返す
+function getCurrentFreqRange() {
+    let elapsed = nightStarted ? millis() - startTime : 0;
+    let t = constrain(elapsed / DESCENT_DURATION_MS, 0, 1);
+    let high = lerp(FREQ_HIGH_START, FREQ_HIGH_END, t);
+    let low  = lerp(FREQ_LOW_START, FREQ_LOW_END, t);
+    return { low, high };
+}
+
+// --- 低く、長い余韻の音を鳴らす ---
+function playNightBell(x, volumeScale) {
+    let osc = new p5.Oscillator('sine');
+    let env = new p5.Envelope();
+
+    // attackを長め・releaseを非常に長くし、輪郭のない音にする
+    env.setADSR(1.5, 1.5, 0.05, 14.0);
+    env.setRange(0.09 * volumeScale, 0);
+
+    let panValue = map(x, 0, width, -0.6, 0.6); // 眠りを妨げないよう振り幅を狭める
+    osc.pan(panValue);
+
+    let { low, high } = getCurrentFreqRange();
+    let freq = map(x, 0, width, low, high) + random(-15, 15);
+    osc.freq(freq);
+    osc.amp(env);
+    osc.start();
+    env.play();
+
+    setTimeout(() => osc.stop(), 16000);
+}
+
+// --- 星屑(元のコードよりゆっくり、控えめに) ---
+class StarDust {
+    constructor(x, y) {
+        this.pos = createVector(x, y);
+        this.vel = p5.Vector.random2D().mult(random(0.05, 0.3));
+        this.acc = createVector(0, 0.004);
+        this.maxLifespan = 900; // 長く漂う
+        this.lifespan = this.maxLifespan;
+        this.color = random() > 0.5 ? color(60, 50, 100) : color(40, 45, 80);
+        this.size = random(1, 2.2);
+    }
+
+    update() {
+        this.pos.x += sin(frameCount * 0.02 + this.lifespan) * 0.15;
+        this.vel.add(this.acc);
+        this.pos.add(this.vel);
+        this.lifespan -= 0.3;
+    }
+
+    display() {
+        noStroke();
+        let a = map(this.lifespan, 0, this.maxLifespan, 0, 60); // 元より薄く
+        fill(red(this.color), green(this.color), blue(this.color), a);
+        let sz = this.size * (sin(frameCount * 0.05) + 1.2);
+        circle(this.pos.x, this.pos.y, sz);
+    }
+
+    isDead() { return this.lifespan < 0; }
+}
+
+function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+}
+</script>
+</body>
+</html>
