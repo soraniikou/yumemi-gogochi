@@ -88,6 +88,7 @@ let lastAutoChimeTime = 0;
 let nextAutoChimeDelay = 0;
 let lastTapTime = 0;
 const AUTO_STOP_MS = 20 * 60 * 1000; // 20分で自動停止
+let activeBells = []; // 再生中の音(Stopで一斉停止するため)
 
 function getBackgroundRGB() {
     const n = BG_COLORS.length;
@@ -171,8 +172,23 @@ function touchStarted(event) {
 document.getElementById('stop-btn').addEventListener('pointerdown', (e) => {
     e.preventDefault();
     e.stopPropagation();
-    nightStarted = false; // 手動停止(以後は新しい音を鳴らさない)
+    stopAllSounds();
 });
+
+function stopAllSounds() {
+    nightStarted = false; // 以後は新しい自動チャイムを鳴らさない
+    for (const bell of activeBells) {
+        clearTimeout(bell.stopTimer);
+        try {
+            bell.osc.amp(0);
+            bell.osc.stop();
+            if (typeof bell.osc.dispose === 'function') {
+                bell.osc.dispose();
+            }
+        } catch (e) {}
+    }
+    activeBells = [];
+}
 
 function handleTap() {
     let now = millis();
@@ -230,7 +246,11 @@ function playNightBell(x, volumeScale) {
     osc.start();
     env.play();
 
-    setTimeout(() => osc.stop(), 16000);
+    const stopTimer = setTimeout(() => {
+        osc.stop();
+        activeBells = activeBells.filter(b => b.osc !== osc);
+    }, 16000);
+    activeBells.push({ osc, stopTimer });
 }
 
 // --- 星屑(元のコードよりゆっくり、控えめに) ---
