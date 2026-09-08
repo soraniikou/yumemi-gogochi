@@ -43,13 +43,15 @@ let particles = [];
 
 // 紫 → 青 → 水色 → 深緑 → 緑 の順でローテーション(ワントーン暗め)
 const BG_COLORS = [
-    [34, 8, 44],   // 濃い紫
-    [7, 11, 41],   // 濃い青
-    [67, 123, 146],// 水色
-    [6, 32, 24],   // 深い緑
-    [14, 63, 35],  // 緑
+    [24, 5, 32],  // 濃い紫
+    [5, 8, 30],   // 濃い青
+    [38, 72, 88], // 水色
+    [4, 22, 16],  // 深い緑
+    [9, 42, 24],  // 緑
 ];
-const BG_SEGMENT_MS = 6000; // 6秒ごとに切り替え
+const BG_HOLD_MS = 7000;  // 各色を7秒キープ
+const BG_FADE_MS = 4000;  // グラデーションで次の色へ
+const BG_SEGMENT_MS = BG_HOLD_MS + BG_FADE_MS;
 
 // --- 夜モード状態管理 ---
 let nightStarted = false;
@@ -69,13 +71,18 @@ function getBackgroundRGB() {
     const n = BG_COLORS.length;
     const t = millis() % (n * BG_SEGMENT_MS);
     const segment = Math.floor(t / BG_SEGMENT_MS);
-    const progress = (t % BG_SEGMENT_MS) / BG_SEGMENT_MS;
+    const local = t % BG_SEGMENT_MS;
     const from = BG_COLORS[segment];
+    if (local < BG_HOLD_MS) {
+        return from;
+    }
+    const progress = (local - BG_HOLD_MS) / BG_FADE_MS;
+    const eased = progress * progress * (3 - 2 * progress); // smoothstep
     const to = BG_COLORS[(segment + 1) % n];
     return [
-        lerp(from[0], to[0], progress),
-        lerp(from[1], to[1], progress),
-        lerp(from[2], to[2], progress),
+        lerp(from[0], to[0], eased),
+        lerp(from[1], to[1], eased),
+        lerp(from[2], to[2], eased),
     ];
 }
 
