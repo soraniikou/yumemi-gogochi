@@ -21,7 +21,7 @@
         }
         .instruction {
             position: fixed;
-            bottom: 8vh;
+            bottom: 12vh;
             width: 100%;
             text-align: center;
             color: rgba(200, 210, 230, 0.35);
@@ -33,10 +33,32 @@
             transition: opacity 3s ease;
         }
         .instruction.faded { opacity: 0; }
+        #stop-btn {
+            position: fixed;
+            bottom: 3.5vh;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 30;
+            background: transparent;
+            border: 1px solid rgba(200, 210, 230, 0.22);
+            color: rgba(200, 210, 230, 0.4);
+            font-family: -apple-system, "Hiragino Sans", sans-serif;
+            font-size: 13px;
+            letter-spacing: 0.14em;
+            padding: 8px 28px;
+            border-radius: 999px;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+        }
+        #stop-btn:hover {
+            color: rgba(200, 210, 230, 0.7);
+            border-color: rgba(200, 210, 230, 0.4);
+        }
     </style>
 </head>
 <body>
 <p class="instruction" id="instruction">Touch once, then let it play</p>
+<button type="button" id="stop-btn">Stop</button>
 
 <script>
 let particles = [];
@@ -132,8 +154,25 @@ function touchMoved() {
     return false;
 }
 
-function mousePressed() { handleTap(); }
-function touchStarted() { handleTap(); return false; }
+function isStopButtonEvent(event) {
+    return event && event.target && (event.target.id === 'stop-btn' || event.target.closest('#stop-btn'));
+}
+
+function mousePressed(event) {
+    if (isStopButtonEvent(event)) return;
+    handleTap();
+}
+function touchStarted(event) {
+    if (isStopButtonEvent(event)) return false;
+    handleTap();
+    return false;
+}
+
+document.getElementById('stop-btn').addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    nightStarted = false; // 手動停止(以後は新しい音を鳴らさない)
+});
 
 function handleTap() {
     let now = millis();
